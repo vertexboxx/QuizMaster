@@ -1,3 +1,5 @@
+from sqlalchemy import case, func
+
 from flask import Blueprint, jsonify, render_template, request
 
 from app import db
@@ -45,13 +47,50 @@ def leaderboard_page():
 @api.route("/quizzes")
 def list_quizzes():
     query = Quiz.query
+
     category = request.args.get("category")
     difficulty = request.args.get("difficulty")
+    sort = request.args.get("sort")
+    order = request.args.get("order", "asc")
+
     if category:
         query = query.filter_by(category=category)
     if difficulty:
         query = query.filter_by(difficulty=difficulty)
-    quizzes = query.order_by(Quiz.id).all()
+
+    allowed_sorts = {"title", "created_at", "difficulty"}
+    allowed_orders = {"asc", "desc"}
+
+    if sort is not None and sort not in allowed_sorts:
+        return error("sort must be title, created_at or difficulty", 400)
+
+    if order not in allowed_orders:
+        return error("order must be asc or desc", 400)
+
+    if sort == "title":
+        sort_column = func.lower(Quiz.title)
+    elif sort == "created_at":
+        sort_column = Quiz.created_at
+    elif sort == "difficulty":
+        sort_column = case(
+            (Quiz.difficulty == "easy", 1),
+            (Quiz.difficulty == "medium", 2),
+            (Quiz.difficulty == "hard", 3),
+            else_=4,
+        )
+    else:
+        sort_column = None
+
+    if sort_column is None:
+        quizzes = query.order_by(Quiz.id.asc()).all()
+    else:
+        ordering = (
+            sort_column.desc()
+            if order == "desc"
+            else sort_column.asc()
+        )
+        quizzes = query.order_by(ordering, Quiz.id.asc()).all()
+
     return jsonify([quiz.to_dict() for quiz in quizzes])
 
 
